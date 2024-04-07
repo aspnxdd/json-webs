@@ -1,9 +1,12 @@
 use chrono::{DateTime, Utc};
 use clap::Parser;
+use notify::{Event, RecursiveMode, Result, Watcher};
 use std::{
     fs,
     io::{prelude::*, BufReader},
     net::{TcpListener, TcpStream},
+    path::Path,
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
 
@@ -39,7 +42,7 @@ impl StatusLine {
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
-    file_name: String,
+    file_path: String,
 
     #[arg(short, long, default_value_t = DEFAULT_PORT)]
     port: u128,
@@ -52,21 +55,50 @@ impl Args {
         args
     }
     fn assert_file_exists(&self) {
-        if fs::metadata(&self.file_name).is_err() {
-            panic!("{}", format!("Json file [{}] Not Found", self.file_name));
+        if fs::metadata(&self.file_path).is_err() {
+            panic!("{}", format!("Json file [{}] Not Found", self.file_path));
         }
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::safe_parse();
+    let file_path = args.file_path;
+    let contents = fs::read_to_string(&file_path);
+    let contents = match contents {
+        Ok(contents) => contents,
+        Err(_) => panic!("Err reading file"),
+    };
+
+    let data = Arc::new(Mutex::new(contents));
+
+    let mut watcher = notify::recommended_watcher({
+        let data = data.clone();
+        move |res: Result<Event>| match res {
+            Ok(res) => {
+                let file_path = res.paths[0].clone();
+                match fs::read_to_string(&file_path) {
+                    Ok(contents) => {
+                        *data.lock().unwrap() = contents;
+                    }
+                    Err(_) => panic!("Err reading file"),
+                };
+            }
+            Err(e) => println!("Watch Error: {:?}", e),
+        }
+    })?;
+
+    watcher.watch(Path::new(&file_path), RecursiveMode::Recursive)?;
+
     let listener = TcpListener::bind(format!("{}:{}", LOCALHOST, args.port));
+
     match listener {
         Ok(listener) => {
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
-                        let res = handle_connection(stream, &args.file_name);
+                        let data = data.clone();
+                        let res = handle_connection(stream, data);
                         if let Err(e) = res {
                             eprintln!("Error handling connection: {}", e);
                         }
@@ -81,6 +113,7 @@ fn main() {
             eprintln!("Failed to bind to port: {}", e);
         }
     }
+    Ok(())
 }
 
 fn get_now_as_rfc3339() -> String {
@@ -89,7 +122,7 @@ fn get_now_as_rfc3339() -> String {
     now.to_rfc3339()
 }
 
-fn handle_connection(mut stream: TcpStream, file_name: &str) -> std::io::Result<()> {
+fn handle_connection(mut stream: TcpStream, contents: Arc<Mutex<String>>) -> std::io::Result<()> {
     let buf_reader = BufReader::new(&mut stream);
     let request_line = match buf_reader.lines().next() {
         Some(Ok(line)) => line,
@@ -104,8 +137,7 @@ fn handle_connection(mut stream: TcpStream, file_name: &str) -> std::io::Result<
     };
 
     if request_line == GET_REQ_LINE {
-        let contents = fs::read_to_string(file_name);
-        let Ok(contents) = contents else {
+        let Ok(contents) = contents.lock() else {
             let status_line = StatusLine::InternalServerError.as_str();
             let contents = StatusLine::InternalServerError
                 .contents_as_str()
@@ -114,7 +146,7 @@ fn handle_connection(mut stream: TcpStream, file_name: &str) -> std::io::Result<
 
             let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
 
-            eprintln!("Error reading file: {}", file_name);
+            eprintln!("Error reading file");
             stream.write_all(response.as_bytes())?;
             return Ok(());
         };

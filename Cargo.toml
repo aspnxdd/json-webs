@@ -17,3 +17,4 @@ edition = "2021"
 chrono = "0.4.37"
 clap = { version = "4.5.4", features = ["derive"] }
 http = "1.1.0"
+notify = "6.1.1"
