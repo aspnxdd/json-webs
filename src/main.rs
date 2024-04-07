@@ -53,10 +53,7 @@ impl Args {
     }
     fn assert_file_exists(&self) {
         if fs::metadata(&self.file_name).is_err() {
-            panic!(
-                "{}",
-                format!("Json file [{}] Not Found", self.file_name.to_string())
-            );
+            panic!("{}", format!("Json file [{}] Not Found", self.file_name));
         }
     }
 }
@@ -123,13 +120,15 @@ fn handle_connection(mut stream: TcpStream, file_name: &str) -> std::io::Result<
         };
         let status_line = StatusLine::Ok.as_str();
         let length = contents.len();
-        let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+        let response = format!("{status_line}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\n\r\n{contents}");
 
         stream.write_all(response.as_bytes())?;
         println!("JSON SERVED AT: {}", get_now_as_rfc3339());
     } else {
         let status_line = StatusLine::NotFound.as_str();
-        let contents = StatusLine::NotFound.contents_as_str().expect("This is an OK response");
+        let contents = StatusLine::NotFound
+            .contents_as_str()
+            .expect("This is an OK response");
         let length = contents.len();
 
         let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
