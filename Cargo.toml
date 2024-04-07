@@ -1,0 +1,19 @@
+[package]
+name = "json-webs"
+version = "0.0.1"
+authors = ["Arnau Espin <arnauespin@gmail.com>"]
+license = "MIT"
+description = "A tool to locally serve a JSON file"
+readme = "README.md"
+homepage = "https://github.com/aspnxdd/json-webs"
+repository = "https://github.com/aspnxdd/json-webs"
+keywords = ["cli", "json", "webserver","serve"]
+categories = ["json-webserver"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.37"
+clap = { version = "4.5.4", features = ["derive"] }
+http = "1.1.0"
