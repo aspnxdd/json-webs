@@ -26,11 +26,11 @@ impl StatusLine {
         }
     }
 
-    pub fn contents_as_str(&self) -> &'static str {
+    pub fn contents_as_str(&self) -> Option<&str> {
         match self {
-            StatusLine::NotFound => "Err 404: Not Found",
-            StatusLine::InternalServerError => "Err 500: Internal Server Error",
-            _ => "",
+            StatusLine::NotFound => Some("Err 404: Not Found"),
+            StatusLine::InternalServerError => Some("Err 500: Internal Server Error"),
+            _ => None,
         }
     }
 }
@@ -70,11 +70,8 @@ fn main() {
                 match stream {
                     Ok(stream) => {
                         let res = handle_connection(stream, &args.file_name);
-                        match res {
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("Error handling connection: {}", e);
-                            }
+                        if let Err(e) = res {
+                            eprintln!("Error handling connection: {}", e);
                         }
                     }
                     Err(e) => {
@@ -95,17 +92,14 @@ fn get_now_as_rfc3339() -> String {
     now.to_rfc3339()
 }
 
-fn handle_connection(mut stream: TcpStream, file_name: &String) -> std::io::Result<()> {
+fn handle_connection(mut stream: TcpStream, file_name: &str) -> std::io::Result<()> {
     let buf_reader = BufReader::new(&mut stream);
-    let request_line = buf_reader.lines().next();
-    let request_line = match request_line {
-        Some(line) => match line {
-            Ok(line) => line,
-            Err(_) => {
-                eprintln!("Error reading request line");
-                return Ok(());
-            }
-        },
+    let request_line = match buf_reader.lines().next() {
+        Some(Ok(line)) => line,
+        Some(Err(_)) => {
+            eprintln!("Error reading request line");
+            return Ok(());
+        }
         None => {
             eprintln!("No request line found");
             return Ok(());
@@ -114,34 +108,33 @@ fn handle_connection(mut stream: TcpStream, file_name: &String) -> std::io::Resu
 
     if request_line == GET_REQ_LINE {
         let contents = fs::read_to_string(file_name);
-        let contents = match contents {
-            Ok(contents) => contents,
-            Err(_) => {
-                let status_line = StatusLine::InternalServerError.as_str();
-                let contents = StatusLine::InternalServerError.contents_as_str();
-                let length = contents.len();
+        let Ok(contents) = contents else {
+            let status_line = StatusLine::InternalServerError.as_str();
+            let contents = StatusLine::InternalServerError
+                .contents_as_str()
+                .expect("This is an OK response");
+            let length = contents.len();
 
-                let response =
-                    format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+            let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
 
-                eprintln!("Error reading file: {}", file_name);
-                stream.write_all(response.as_bytes())?;
-                return Ok(());
-            }
+            eprintln!("Error reading file: {}", file_name);
+            stream.write_all(response.as_bytes())?;
+            return Ok(());
         };
         let status_line = StatusLine::Ok.as_str();
         let length = contents.len();
         let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
-        println!("JSON SERVED AT: {}", get_now_as_rfc3339());
+
         stream.write_all(response.as_bytes())?;
+        println!("JSON SERVED AT: {}", get_now_as_rfc3339());
     } else {
         let status_line = StatusLine::NotFound.as_str();
-        let contents = StatusLine::NotFound.contents_as_str();
+        let contents = StatusLine::NotFound.contents_as_str().expect("This is an OK response");
         let length = contents.len();
 
         let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
-
         stream.write_all(response.as_bytes())?;
+        eprintln!("Invalid request line: {}", request_line);
     }
     Ok(())
 }
